@@ -67,6 +67,39 @@ test('API keeps local access, origin, body size and data validation protections'
   assert.equal((await PUT(invalidJSON)).status, 400);
 });
 
+test('configured deployment origins allow reads and same-origin writes only', async () => {
+  const previous = process.env.DAYFLOW_ALLOWED_ORIGINS;
+  process.env.DAYFLOW_ALLOWED_ORIGINS = ' http://192.168.1.50:3000/, https://dayflow.example.com ';
+  try {
+    for (const origin of ['http://192.168.1.50:3000', 'https://dayflow.example.com']) {
+      const url = `${origin}/api/data`;
+      const response = await GET(new Request(url));
+      assert.equal(response.status, 200);
+      const saved = await response.json();
+      assert.equal((await PUT(request(saved, { origin, 'sec-fetch-site': 'same-origin' }, url))).status, 200);
+      assert.equal((await PUT(request(saved, { origin: 'https://evil.example' }, url))).status, 403);
+      assert.equal((await PUT(new Request(url, {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(saved),
+      }))).status, 403);
+    }
+    for (const origin of [
+      'http://192.168.1.50:3001', 'http://dayflow.example.com',
+      'https://dayflow.example.com.evil.example', 'https://evil.example',
+    ]) {
+      assert.equal((await GET(new Request(`${origin}/api/data`))).status, 403);
+    }
+    assert.equal((await GET(new Request('https://dayflow.example.com/api/data', {
+      headers: { 'sec-fetch-site': 'cross-site' },
+    }))).status, 403);
+    assert.equal((await GET(new Request('http://unlisted.example/api/data', {
+      headers: { 'x-forwarded-host': 'dayflow.example.com', 'x-forwarded-proto': 'https' },
+    }))).status, 403);
+  } finally {
+    if (previous === undefined) delete process.env.DAYFLOW_ALLOWED_ORIGINS;
+    else process.env.DAYFLOW_ALLOWED_ORIGINS = previous;
+  }
+});
+
 test('migration reads WAL data, preserves revision and refuses to replace existing data', () => {
   const sourcePath = join(directory, 'legacy.sqlite');
   const targetPath = join(directory, 'migrated.sqlite');

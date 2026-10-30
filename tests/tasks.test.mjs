@@ -8,7 +8,26 @@ import {
   setStatus,
   dateKey,
   offsetDate,
+  uid,
 } from '../lib/tasks.ts';
+
+test('UUID generation and task initialization work without crypto.randomUUID on HTTP', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(crypto, 'randomUUID');
+  Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+  try {
+    const ids = Array.from({ length: 100 }, () => uid());
+    assert.equal(new Set(ids).size, ids.length);
+    for (const id of ids) {
+      assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    }
+    assert.equal(newTask('HTTP task').title, 'HTTP task');
+    const data = seed();
+    assert.deepEqual(validateData(data), data);
+  } finally {
+    if (descriptor) Object.defineProperty(crypto, 'randomUUID', descriptor);
+    else delete crypto.randomUUID;
+  }
+});
 
 test('backup round trip preserves tasks and subtasks', () => {
   const original = seed();

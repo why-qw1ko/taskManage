@@ -4,17 +4,21 @@ import { validateData } from '../../../lib/tasks.ts';
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
 
-function isLocalRequest(request: Request) {
+function isAllowedRequest(request: Request) {
   const url = new URL(request.url);
   const origin = request.headers.get('origin');
   const site = request.headers.get('sec-fetch-site');
-  return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) &&
+  const allowedOrigins = (process.env.DAYFLOW_ALLOWED_ORIGINS || '')
+    .split(',').map((value) => value.trim().replace(/\/$/, ''));
+  const allowedAddress = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
+    allowedOrigins.includes(url.origin);
+  return allowedAddress &&
     (!origin || origin === url.origin) &&
     (!site || site === 'same-origin' || site === 'none');
 }
 
 export async function GET(request: Request) {
-  if (!isLocalRequest(request)) return new Response('Forbidden', { status: 403 });
+  if (!isAllowedRequest(request)) return new Response('Forbidden', { status: 403 });
   try {
     const row = database().prepare('SELECT revision, payload FROM dayflow_state WHERE id = 1')
       .get() as { revision: number; payload: string } | undefined;
@@ -25,7 +29,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  if (!isLocalRequest(request) || request.headers.get('origin') !== new URL(request.url).origin)
+  if (!isAllowedRequest(request) || request.headers.get('origin') !== new URL(request.url).origin)
     return new Response('Forbidden', { status: 403 });
   if (!request.headers.get('content-type')?.startsWith('application/json'))
     return new Response('Invalid content type', { status: 415 });

@@ -2,6 +2,28 @@
 
 序日是一个运行在本机的个人任务管理工具。它提供列表、看板和日历视图，支持任务拆解、清单管理和专注计时，数据保存在本机 SQLite 数据库中。
 
+## 界面预览
+
+以下截图使用内置示例数据，均为页面首屏的可见区域，未滚动页面或拼接长图。
+
+### 列表视图
+
+查看今日任务、完成进度和按状态分组的待办事项。
+
+![序日 Dayflow 列表视图](docs/screenshots/dayflow-list.jpg)
+
+### 看板视图
+
+按「待开始」「进行中」「已完成」三列管理任务进度。
+
+![序日 Dayflow 看板视图](docs/screenshots/dayflow-board.jpg)
+
+### 日历视图
+
+按月份查看日历，通过日期安排任务。
+
+![序日 Dayflow 日历视图](docs/screenshots/dayflow-calendar.jpg)
+
 ## 功能
 
 - **任务管理**：创建、编辑、完成和删除任务，设置截止日期、优先级、状态、备注、标签及子任务，也可以标记重要任务。
@@ -60,6 +82,42 @@ npm start
 `npm start` 使用普通 Node.js HTTP 服务运行构建产物，默认监听 `127.0.0.1:3000`，与开发服务使用同一个数据库文件。请在项目根目录运行这些命令，保留 `dist/`、`node_modules/` 和 `migrations/`。
 
 项目通过 Node.js 内置的 `node:sqlite` 访问数据库，没有需要额外编译的 SQLite 驱动。npm 命令已包含 Node.js 22.12 所需的 `--experimental-sqlite` 参数；该版本可能显示 SQLite 实验性功能提示，这是 Node.js 的提示，不是 Cloudflare 报错。保留 Node.js 22.12 的最低要求，是因为现有 Vite 工具链及内置 SQLite 需要此版本。
+
+### 5. 配置服务器访问地址（解决 `/api/data` 返回 403）
+
+默认仅允许本机地址访问数据接口。通过服务器 IP 或域名访问时，在项目根目录的 `.env.production` 中配置浏览器地址栏对应的来源（协议、主机名和端口，不含页面路径）：
+
+```dotenv
+DAYFLOW_ALLOWED_ORIGINS=http://192.168.1.50:3000
+```
+
+将示例替换成实际地址；多个来源用英文逗号分隔。HTTPS 与 HTTP、不同端口分别匹配，不支持 `*` 通配符。配置修改后重启服务；首次更新本次代码时先执行 `npm run build`，再运行 `npm start`。开发模式可将配置写在 `.env.local`。
+
+若由 Nginx 等反向代理提供 HTTPS，例如 `https://dayflow.example.com`，配置为：
+
+```dotenv
+DAYFLOW_ALLOWED_ORIGINS=https://dayflow.example.com
+VINEXT_TRUSTED_HOSTS=dayflow.example.com
+```
+
+代理需要覆盖转发头，传入浏览器实际使用的域名、端口和协议。以下配置放在已有 HTTPS 站点的 `location /` 中：
+
+```nginx
+proxy_pass http://127.0.0.1:3000;
+proxy_set_header Host $http_host;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+`VINEXT_TRUSTED_HOSTS` 填主机名及非默认端口，不含协议；设置后框架才会采用匹配的转发主机名和代理协议，从而避免 HTTPS 页面写入时因服务端识别为 HTTP 而返回 403。此模式下保持 Node.js 仅监听本机，让外部请求经过代理。
+
+若在受控内网中直接通过 IP 访问 Node.js，可在构建后运行以下命令监听网卡，并仍配置 `DAYFLOW_ALLOWED_ORIGINS`：
+
+```bash
+node --experimental-sqlite node_modules/vinext/dist/cli.js start --hostname 0.0.0.0
+```
+
+访问地址白名单与同源校验不提供用户身份认证。当前应用共用一份任务数据；对公网开放前，应在反向代理等入口配置登录认证或其他访问控制。
 
 ## 使用指南
 
@@ -140,6 +198,7 @@ app/                  页面、样式和本地数据接口
 components/dayflow/   任务、日历、设置和专注面板
 components/ui/        通用 UI 组件
 hooks/                自定义 React Hooks
+docs/screenshots/     README 界面截图
 lib/tasks.ts          任务模型、数据校验和备份合并
 lib/database.mjs      Node.js 内置 SQLite 连接与初始化
 migrations/           SQLite 数据表初始化
@@ -161,7 +220,7 @@ SQLite 数据库保存在运行项目的那台电脑上，不提供跨设备同�
 
 **可以部署到公网吗？**
 
-当前实现面向本机个人使用，数据接口仍限制本地地址访问，也没有多用户身份认证和授权。本次仅替换为 Node.js 服务和本地 SQLite 存储；若要公开访问，需要另行配置访问保护与部署方式，数据库仍可使用服务器上的本地 SQLite 文件。
+可以在普通 Node.js 服务器运行，数据库保存在服务器本地。请按「配置服务器访问地址」设置允许的来源和代理转发头。应用没有多用户身份认证和授权，对公网开放时需要在入口配置访问保护。
 
 ## 许可证
 

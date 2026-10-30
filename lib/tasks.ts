@@ -29,7 +29,15 @@ export function offsetDate(n: number, base = new Date()) {
   d.setDate(d.getDate() + n);
   return dateKey(d);
 }
-export const uid = () => crypto.randomUUID();
+export function uid(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  // getRandomValues also works on HTTP pages where randomUUID is unavailable.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 export function newTask(title = '', list = '收集箱', date = ''): Task {
   return {
     id: uid(),

@@ -1,7 +1,7 @@
-import { env } from 'cloudflare:workers';
-import { validateData } from '@/lib/tasks';
+import { database } from '../../../lib/database.mjs';
+import { validateData } from '../../../lib/tasks.ts';
 
-const database = () => (env as unknown as { DB: D1Database }).DB;
+export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
 
 function isLocalRequest(request: Request) {
@@ -16,8 +16,8 @@ function isLocalRequest(request: Request) {
 export async function GET(request: Request) {
   if (!isLocalRequest(request)) return new Response('Forbidden', { status: 403 });
   try {
-    const row = await database().prepare('SELECT revision, payload FROM dayflow_state WHERE id = 1')
-      .first<{ revision: number; payload: string }>();
+    const row = database().prepare('SELECT revision, payload FROM dayflow_state WHERE id = 1')
+      .get() as { revision: number; payload: string } | undefined;
     return Response.json(row ? { revision: row.revision, data: validateData(JSON.parse(row.payload)) } : null, { headers });
   } catch {
     return new Response('Database unavailable', { status: 503, headers });
@@ -48,9 +48,9 @@ export async function PUT(request: Request) {
   }
   try {
     const result = input.revision === null
-      ? await database().prepare('INSERT INTO dayflow_state (id, revision, payload) VALUES (1, 1, ?) ON CONFLICT(id) DO NOTHING').bind(payload).run()
-      : await database().prepare('UPDATE dayflow_state SET revision = revision + 1, payload = ? WHERE id = 1 AND revision = ?').bind(payload, input.revision).run();
-    if (!result.meta.changes) return new Response('Conflict', { status: 409, headers });
+      ? database().prepare('INSERT INTO dayflow_state (id, revision, payload) VALUES (1, 1, ?) ON CONFLICT(id) DO NOTHING').run(payload)
+      : database().prepare('UPDATE dayflow_state SET revision = revision + 1, payload = ? WHERE id = 1 AND revision = ?').run(payload, input.revision as number);
+    if (!result.changes) return new Response('Conflict', { status: 409, headers });
     return Response.json({ revision: input.revision === null ? 1 : (input.revision as number) + 1 }, { headers });
   } catch {
     return new Response('Database unavailable', { status: 503, headers });

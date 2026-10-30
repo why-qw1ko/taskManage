@@ -13,8 +13,8 @@
 
 ## 环境要求
 
-- Node.js **22.13.0 或更高版本**，以及随 Node.js 安装的 npm。
-- 能访问 npm 包下载地址的网络连接；依赖下载完成后，本地使用不需要单独安装 SQLite 或配置 Cloudflare 账号。
+- Node.js **22.12.0 或更高版本**，以及随 Node.js 安装的 npm。
+- 能访问 npm 包下载地址的网络连接；依赖下载完成后，本地使用不需要单独安装 SQLite，也不需要 Cloudflare、Wrangler 或数据库服务。
 - 支持现代 JavaScript 的浏览器。
 
 本项目使用 npm 和 `package-lock.json`。锁文件中的部分依赖下载地址指向 npm 镜像，请确保运行环境能够访问对应地址。
@@ -46,7 +46,7 @@ npm ci
 npm run dev
 ```
 
-启动过程会先在本机应用 SQLite 数据库迁移，再启动开发服务器。使用终端输出的 `Local` 地址访问；默认通常是 `http://localhost:3000`。首次打开一个空数据库时，应用会创建示例任务。可以在「设置与数据」中清除示例任务。
+使用终端输出的 `Local` 地址访问；默认通常是 `http://localhost:3000`。第一次访问数据接口时会自动创建 SQLite 文件和数据表。首次打开一个空数据库时，应用会创建示例任务。可以在「设置与数据」中清除示例任务。旧版本用户请先按下文迁移数据，再打开页面。
 
 按 `Ctrl+C` 停止服务。若提示同一项目已有开发服务运行，请使用提示中的地址，或先正常停止已有服务。
 
@@ -57,7 +57,9 @@ npm run build
 npm start
 ```
 
-`npm start` 使用 Wrangler 在本机运行构建产物，并使用与开发服务相同的数据库目录。这是本地预览，不会发布网站。
+`npm start` 使用普通 Node.js HTTP 服务运行构建产物，默认监听 `127.0.0.1:3000`，与开发服务使用同一个数据库文件。请在项目根目录运行这些命令，保留 `dist/`、`node_modules/` 和 `migrations/`。
+
+项目通过 Node.js 内置的 `node:sqlite` 访问数据库，没有需要额外编译的 SQLite 驱动。npm 命令已包含 Node.js 22.12 所需的 `--experimental-sqlite` 参数；该版本可能显示 SQLite 实验性功能提示，这是 Node.js 的提示，不是 Cloudflare 报错。保留 Node.js 22.12 的最低要求，是因为现有 Vite 工具链及内置 SQLite 需要此版本。
 
 ## 使用指南
 
@@ -85,13 +87,17 @@ npm start
 
 ## 数据存储与备份
 
-应用通过本地 Cloudflare D1 模拟器读写 SQLite。数据库文件和相关状态位于项目目录下的：
+应用通过 Node.js 直接读写一个 SQLite 数据库文件，默认路径为：
 
 ```text
-.dayflow-data/v3/d1/
+.dayflow-data/dayflow.sqlite
 ```
 
+可通过环境变量 `DAYFLOW_DB_PATH` 指定其他文件位置；相对路径基于启动时的项目根目录。请放在持久、可写的位置，并让开发和生产服务使用相同配置。
+
 任务、清单和设置作为一份 JSON 数据保存在 SQLite 中，并带有版本号。已有数据库不会在启动时被默认数据覆盖。多标签页写入发生冲突时，页面会提示重新操作，避免直接覆盖较新的数据。
+
+数据库采用 DELETE 日志模式，事务结束后只保留主数据库文件；写入过程中可能短暂出现 `-journal` 文件，这是 SQLite 的正常事务机制。直接备份数据库时，应先停止服务再复制 `.dayflow-data/dayflow.sqlite`；恢复时也需停止服务后再替换文件。
 
 `.dayflow-data/` 已加入 `.gitignore`，但它包含实际数据：清理项目目录、迁移电脑或重装系统前，请先备份。推荐使用应用内的 JSON 备份：
 
@@ -100,6 +106,16 @@ npm start
 3. 需要恢复或迁移时，打开目标应用的「设置与数据」，选择「导入并合并」，然后选择备份文件。
 
 导入会保留当前已有的同 ID 任务，并加入备份中的新任务和清单；它不是覆盖式恢复。备份文件须小于 5 MB。重置所有数据会清除任务、清单和设置，请先确认备份可用。
+
+### 从旧版 D1 本地数据库迁移
+
+旧数据仍保留在 `.dayflow-data/v3/d1/`，不会被删除。请先停止旧服务，在该目录的子目录中找到文件名为一长串字符的 `.sqlite` 文件（不是 `metadata.sqlite`），然后在首次打开新版页面之前执行：
+
+```bash
+npm run db:migrate -- ".dayflow-data/v3/d1/miniflare-D1DatabaseObject/<旧数据库文件名>.sqlite"
+```
+
+脚本只读旧数据库，将任务、清单、设置和原版本号写入新的数据库；不需要安装或运行 Wrangler。若目标数据库已经有数据，脚本会拒绝覆盖。也可以在旧版本导出 JSON，再到新版导入并合并。
 
 ## 本地检查
 
@@ -112,7 +128,7 @@ npx tsc --noEmit --incremental false
 运行现有测试：
 
 ```bash
-node --experimental-strip-types --test tests/*.test.mjs
+npm test
 ```
 
 项目还提供 `npm run lint` 和 `npm run format`；后者会格式化文件并修改工作区。
@@ -125,12 +141,13 @@ components/dayflow/   任务、日历、设置和专注面板
 components/ui/        通用 UI 组件
 hooks/                自定义 React Hooks
 lib/tasks.ts          任务模型、数据校验和备份合并
-migrations/           本机 D1 / SQLite 数据库迁移
-scripts/              本地数据库初始化脚本
-tests/                数据模型和输入法回车保护测试
+lib/database.mjs      Node.js 内置 SQLite 连接与初始化
+migrations/           SQLite 数据表初始化
+scripts/              旧版数据库迁移脚本
+tests/                数据模型、数据库接口、迁移及输入法测试
 ```
 
-主要技术包括 React、TypeScript、Vinext、Vite、Tailwind CSS、Base UI 和 Cloudflare D1 本地模拟器。
+主要技术包括 React、TypeScript、Vinext、Vite、Tailwind CSS、Base UI 和 Node.js 内置 SQLite。
 
 ## 常见问题
 
@@ -140,11 +157,11 @@ SQLite 数据库保存在运行项目的那台电脑上，不提供跨设备同�
 
 **页面提示无法读取或初始化 SQLite，怎么办？**
 
-先确认本机服务正在运行，查看启动终端中的数据库迁移或文件权限错误，再刷新页面。请勿为了排查直接删除 `.dayflow-data/`；其中可能包含已有数据。
+先确认本机服务正在运行，并在项目根目录启动，确认数据库目录可写以及 `migrations/0001_dayflow.sql` 存在，再刷新页面。请勿为了排查直接删除 `.dayflow-data/`；其中可能包含已有数据。
 
 **可以部署到公网吗？**
 
-当前实现面向本机个人使用，数据接口限制本地地址访问，也没有多用户身份认证和授权。若要公开部署，需要另行设计远程数据库、身份认证、权限隔离及部署配置。
+当前实现面向本机个人使用，数据接口仍限制本地地址访问，也没有多用户身份认证和授权。本次仅替换为 Node.js 服务和本地 SQLite 存储；若要公开访问，需要另行配置访问保护与部署方式，数据库仍可使用服务器上的本地 SQLite 文件。
 
 ## 许可证
 
